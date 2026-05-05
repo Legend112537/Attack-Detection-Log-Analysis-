@@ -1,0 +1,34 @@
+"""
+Log Parsers Module
+"""
+
+from .apache_parser import ApacheParser
+from .nginx_parser import NginxParser
+from .syslog_parser import SyslogParser
+from .json_parser import JsonParser
+
+
+class LogParser:
+    """Unified log parser that delegates to format-specific parsers."""
+
+    PARSERS = {
+        "apache": ApacheParser,
+        "nginx": NginxParser,
+        "combined": ApacheParser,  # Combined format is same as Apache
+        "syslog": SyslogParser,
+        "json": JsonParser,
+    }
+
+    def __init__(self, log_format: str = "apache"):
+        if log_format not in self.PARSERS:
+            raise ValueError(f"Unsupported format: {log_format}. Choose from {list(self.PARSERS.keys())}")
+        self._parser = self.PARSERS[log_format]()
+
+    def parse_file(self, filepath: str):
+        return self._parser.parse_file(filepath)
+
+    def parse_line(self, line: str):
+        return self._parser.parse_line(line)
+
+
+__all__ = ["LogParser", "ApacheParser", "NginxParser", "SyslogParser", "JsonParser"]
