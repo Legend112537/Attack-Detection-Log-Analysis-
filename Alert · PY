@@ -1,0 +1,72 @@
+"""
+Alert model for the Attack Detection system.
+"""
+
+from dataclasses import dataclass, field
+from datetime import datetime
+from typing import Optional, Dict, Any
+
+
+@dataclass
+class Alert:
+    """Represents a detected security alert."""
+
+    attack_type: str
+    ip: str
+    severity: str  # LOW, MEDIUM, HIGH, CRITICAL
+    description: str
+    timestamp: Optional[datetime] = None
+    url: Optional[str] = None
+    method: Optional[str] = None
+    status_code: Optional[int] = None
+    user_agent: Optional[str] = None
+    raw_line: Optional[str] = None
+    count: int = 1
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "attack_type": self.attack_type,
+            "ip": self.ip,
+            "severity": self.severity,
+            "description": self.description,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "url": self.url,
+            "method": self.method,
+            "status_code": self.status_code,
+            "user_agent": self.user_agent,
+            "count": self.count,
+            "extra": self.extra,
+        }
+
+    @property
+    def severity_score(self) -> int:
+        return {"LOW": 1, "MEDIUM": 2, "HIGH": 3, "CRITICAL": 4}.get(self.severity, 0)
+
+
+@dataclass
+class LogEntry:
+    """Represents a single parsed log entry."""
+
+    ip: str
+    timestamp: Optional[datetime] = None
+    method: Optional[str] = None
+    url: Optional[str] = None
+    protocol: Optional[str] = None
+    status_code: Optional[int] = None
+    response_size: Optional[int] = None
+    referer: Optional[str] = None
+    user_agent: Optional[str] = None
+    raw_line: str = ""
+    extra: Dict[str, Any] = field(default_factory=dict)
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ip": self.ip,
+            "timestamp": self.timestamp.isoformat() if self.timestamp else None,
+            "method": self.method,
+            "url": self.url,
+            "status_code": self.status_code,
+            "response_size": self.response_size,
+            "user_agent": self.user_agent,
+        }
