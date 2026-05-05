@@ -1,0 +1,34 @@
+"""
+Abstract base class for all log parsers.
+"""
+
+from abc import ABC, abstractmethod
+from typing import List, Optional
+from ..utils.alert import LogEntry
+
+
+class BaseParser(ABC):
+    """Abstract base parser. All parsers must implement parse_line()."""
+
+    def parse_file(self, filepath: str) -> List[LogEntry]:
+        """Parse all lines in a log file."""
+        entries = []
+        try:
+            with open(filepath, "r", encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    entry = self.parse_line(line)
+                    if entry:
+                        entries.append(entry)
+        except FileNotFoundError:
+            print(f"[ERROR] File not found: {filepath}")
+        except PermissionError:
+            print(f"[ERROR] Permission denied: {filepath}")
+        return entries
+
+    @abstractmethod
+    def parse_line(self, line: str) -> Optional[LogEntry]:
+        """Parse a single log line. Returns LogEntry or None on failure."""
+        pass
