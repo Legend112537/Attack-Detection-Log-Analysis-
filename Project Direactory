@@ -1,0 +1,3 @@
+mkdir -p /home/claude/attack-detection-log
+-analysis/{src/{detectors, parsers, utils}, dashboard, logs/samples, tests, config, docs} &&
+echo "Structure created."
