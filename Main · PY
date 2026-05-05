@@ -1,0 +1,225 @@
+#!/usr/bin/env python3
+"""
+Attack Detection & Log Analysis System
+Main CLI Entry Point
+"""
+
+import argparse
+import sys
+import os
+import glob
+import json
+from pathlib import Path
+from colorama import init, Fore, Style
+
+# Add src to path
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+
+from src.parsers import LogParser
+from src.detectors import AttackDetector
+from src.utils.reporter import Reporter
+from src.utils.alert import Alert
+
+init(autoreset=True)
+
+
+BANNER = f"""
+{Fore.RED}
+ █████╗ ████████╗████████╗ █████╗  ██████╗██╗  ██╗    ██████╗ ███████╗████████╗
+██╔══██╗╚══██╔══╝╚══██╔══╝██╔══██╗██╔════╝██║ ██╔╝    ██╔══██╗██╔════╝╚══██╔══╝
+███████║   ██║      ██║   ███████║██║     █████╔╝     ██║  ██║█████╗     ██║   
+██╔══██║   ██║      ██║   ██╔══██║██║     ██╔═██╗     ██║  ██║██╔══╝     ██║   
+██║  ██║   ██║      ██║   ██║  ██║╚██████╗██║  ██╗    ██████╔╝███████╗   ██║   
+╚═╝  ╚═╝   ╚═╝      ╚═╝   ╚═╝  ╚═╝ ╚═════╝╚═╝  ╚═╝    ╚═════╝ ╚══════╝   ╚═╝   
+{Style.RESET_ALL}
+{Fore.CYAN}          Log Analysis & Intrusion Detection System v1.0.0{Style.RESET_ALL}
+{Fore.YELLOW}          ⚠  For authorized use on your own systems only  ⚠{Style.RESET_ALL}
+"""
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Attack Detection & Log Analysis System",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  %(prog)s --log access.log --format apache
+  %(prog)s --log /var/log/nginx/access.log --format nginx --watch
+  %(prog)s --log access.log --format apache --report html --output report.html
+  %(prog)s --log "logs/*.log" --format apache --glob
+        """,
+    )
+    parser.add_argument("--log", "-l", required=True, help="Path to log file (or glob pattern with --glob)")
+    parser.add_argument(
+        "--format", "-f",
+        default="apache",
+        choices=["apache", "nginx", "syslog", "json", "combined"],
+        help="Log format (default: apache)",
+    )
+    parser.add_argument("--watch", "-w", action="store_true", help="Watch log file for new entries (real-time mode)")
+    parser.add_argument("--glob", "-g", action="store_true", help="Treat --log as a glob pattern")
+    parser.add_argument("--rules", "-r", default="config/custom_rules.yaml", help="Custom rules YAML file")
+    parser.add_argument(
+        "--report",
+        choices=["html", "json", "csv", "all"],
+        help="Generate a report in specified format",
+    )
+    parser.add_argument("--output", "-o", default="report", help="Output file name (without extension)")
+    parser.add_argument("--threshold", "-t", type=int, default=5, help="Alert threshold (default: 5)")
+    parser.add_argument("--severity", "-s", choices=["LOW", "MEDIUM", "HIGH", "CRITICAL"], default="LOW", help="Minimum severity to display")
+    parser.add_argument("--quiet", "-q", action="store_true", help="Suppress banner and info messages")
+    parser.add_argument("--json-output", action="store_true", help="Output alerts as JSON to stdout")
+    return parser.parse_args()
+
+
+def print_summary(alerts, elapsed=None):
+    if not alerts:
+        print(f"\n{Fore.GREEN}✓ No attacks detected.{Style.RESET_ALL}\n")
+        return
+
+    severity_counts = {"CRITICAL": 0, "HIGH": 0, "MEDIUM": 0, "LOW": 0}
+    attack_types = {}
+    attacking_ips = set()
+
+    for alert in alerts:
+        severity_counts[alert.severity] = severity_counts.get(alert.severity, 0) + 1
+        attack_types[alert.attack_type] = attack_types.get(alert.attack_type, 0) + 1
+        attacking_ips.add(alert.ip)
+
+    print(f"\n{Fore.RED}{'═' * 60}")
+    print(f"  🚨  ANALYSIS COMPLETE — {len(alerts)} ALERTS DETECTED")
+    print(f"{'═' * 60}{Style.RESET_ALL}")
+
+    print(f"\n{Fore.YELLOW}Severity Breakdown:{Style.RESET_ALL}")
+    colors = {"CRITICAL": Fore.RED, "HIGH": Fore.MAGENTA, "MEDIUM": Fore.YELLOW, "LOW": Fore.CYAN}
+    for sev in ["CRITICAL", "HIGH", "MEDIUM", "LOW"]:
+        count = severity_counts.get(sev, 0)
+        if count:
+            bar = "█" * min(count, 40)
+            print(f"  {colors[sev]}{sev:<10} {bar} {count}{Style.RESET_ALL}")
+
+    print(f"\n{Fore.YELLOW}Top Attack Types:{Style.RESET_ALL}")
+    for atype, count in sorted(attack_types.items(), key=lambda x: -x[1])[:5]:
+        print(f"  {Fore.WHITE}• {atype:<30} {Fore.RED}{count} alerts{Style.RESET_ALL}")
+
+    print(f"\n{Fore.YELLOW}Unique Attacking IPs: {Fore.RED}{len(attacking_ips)}{Style.RESET_ALL}")
+    for ip in list(attacking_ips)[:10]:
+        print(f"  {Fore.WHITE}• {ip}{Style.RESET_ALL}")
+    if len(attacking_ips) > 10:
+        print(f"  {Fore.CYAN}  ... and {len(attacking_ips) - 10} more{Style.RESET_ALL}")
+
+    if elapsed:
+        print(f"\n{Fore.CYAN}⏱  Analysis completed in {elapsed:.2f}s{Style.RESET_ALL}")
+    print()
+
+
+def print_alert(alert, min_severity="LOW"):
+    severity_order = {"LOW": 0, "MEDIUM": 1, "HIGH": 2, "CRITICAL": 3}
+    if severity_order.get(alert.severity, 0) < severity_order.get(min_severity, 0):
+        return
+
+    colors = {
+        "CRITICAL": Fore.RED,
+        "HIGH": Fore.MAGENTA,
+        "MEDIUM": Fore.YELLOW,
+        "LOW": Fore.CYAN,
+    }
+    color = colors.get(alert.severity, Fore.WHITE)
+    timestamp = alert.timestamp.strftime("%Y-%m-%d %H:%M:%S") if alert.timestamp else "N/A"
+    print(
+        f"{color}[{alert.severity:<8}]{Style.RESET_ALL} "
+        f"{Fore.WHITE}{timestamp}{Style.RESET_ALL} | "
+        f"{Fore.CYAN}{alert.ip:<15}{Style.RESET_ALL} | "
+        f"{color}{alert.attack_type:<25}{Style.RESET_ALL} | "
+        f"{alert.description[:60]}"
+    )
+
+
+def run_analysis(log_files, log_format, rules_file, threshold, min_severity, quiet, json_output):
+    import time
+
+    parser = LogParser(log_format=log_format)
+    detector = AttackDetector(rules_file=rules_file, threshold=threshold)
+
+    all_entries = []
+    for log_file in log_files:
+        if not quiet:
+            print(f"{Fore.CYAN}📂 Parsing: {log_file}{Style.RESET_ALL}")
+        entries = parser.parse_file(log_file)
+        all_entries.extend(entries)
+        if not quiet:
+            print(f"   {Fore.GREEN}✓ {len(entries)} entries loaded{Style.RESET_ALL}")
+
+    if not all_entries:
+        print(f"{Fore.YELLOW}⚠  No log entries found. Check file path and format.{Style.RESET_ALL}")
+        return []
+
+    if not quiet:
+        print(f"\n{Fore.CYAN}🔍 Analyzing {len(all_entries)} log entries...{Style.RESET_ALL}")
+
+    start = time.time()
+    alerts = detector.analyze(all_entries)
+    elapsed = time.time() - start
+
+    if json_output:
+        print(json.dumps([a.to_dict() for a in alerts], indent=2, default=str))
+        return alerts
+
+    if not quiet:
+        print(f"\n{'─' * 100}")
+        print(f"{'SEVERITY':<10} {'TIMESTAMP':<21} {'IP':<17} {'ATTACK TYPE':<27} DESCRIPTION")
+        print(f"{'─' * 100}")
+        for alert in alerts:
+            print_alert(alert, min_severity)
+        print(f"{'─' * 100}")
+        print_summary(alerts, elapsed)
+
+    return alerts
+
+
+def main():
+    args = parse_args()
+
+    if not args.quiet and not args.json_output:
+        print(BANNER)
+
+    # Resolve log files
+    if args.glob:
+        log_files = sorted(glob.glob(args.log))
+        if not log_files:
+            print(f"{Fore.RED}✗ No files matched glob pattern: {args.log}{Style.RESET_ALL}")
+            sys.exit(1)
+    else:
+        log_files = [args.log]
+        if not os.path.exists(args.log):
+            print(f"{Fore.RED}✗ Log file not found: {args.log}{Style.RESET_ALL}")
+            sys.exit(1)
+
+    if args.watch:
+        from src.utils.watcher import LogWatcher
+        if not args.quiet:
+            print(f"{Fore.CYAN}👁  Watching {args.log} for new entries... (Ctrl+C to stop){Style.RESET_ALL}\n")
+        watcher = LogWatcher(args.log, args.format, args.rules, args.threshold)
+        watcher.watch(callback=lambda a: print_alert(a, args.severity))
+    else:
+        alerts = run_analysis(log_files, args.format, args.rules, args.threshold, args.severity, args.quiet, args.json_output)
+
+        if args.report and alerts is not None:
+            reporter = Reporter()
+            output_path = args.output
+            if args.report == "html" or args.report == "all":
+                path = reporter.generate_html(alerts, output_path + ".html")
+                if not args.quiet:
+                    print(f"{Fore.GREEN}📄 HTML report saved: {path}{Style.RESET_ALL}")
+            if args.report == "json" or args.report == "all":
+                path = reporter.generate_json(alerts, output_path + ".json")
+                if not args.quiet:
+                    print(f"{Fore.GREEN}📄 JSON report saved: {path}{Style.RESET_ALL}")
+            if args.report == "csv" or args.report == "all":
+                path = reporter.generate_csv(alerts, output_path + ".csv")
+                if not args.quiet:
+                    print(f"{Fore.GREEN}📄 CSV report saved: {path}{Style.RESET_ALL}")
+
+
+if __name__ == "__main__":
+    main()
