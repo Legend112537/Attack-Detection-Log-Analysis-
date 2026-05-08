@@ -1,0 +1,54 @@
+import re
+from datetime import datetime
+from typing import Optional, List
+from ..utils.alert import LogEntry
+
+PATTERN = re.compile(
+    r'(?P<ip>\S+)\s+\S+\s+\S+\s+'
+    r'\[(?P<time>[^\]]+)\]\s+'
+    r'"(?P<request>[^"]*?)"\s+'
+    r'(?P<status>\d{3})\s+'
+    r'(?P<size>\S+)'
+    r'(?:\s+"(?P<referer>[^"]*)")?'
+    r'(?:\s+"(?P<agent>[^"]*)")?'
+)
+TIME_FMT = "%d/%b/%Y:%H:%M:%S %z"
+
+
+class ApacheParser:
+    def parse_file(self, path: str) -> List[LogEntry]:
+        entries = []
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    e = self.parse_line(line.strip())
+                    if e:
+                        entries.append(e)
+        except Exception as ex:
+            print(f"[ERROR] {ex}")
+        return entries
+
+    def parse_line(self, line: str) -> Optional[LogEntry]:
+        m = PATTERN.match(line)
+        if not m:
+            return None
+        ts = None
+        try:
+            ts = datetime.strptime(m.group("time"), TIME_FMT)
+        except Exception:
+            pass
+        req = m.group("request").split(" ", 2)
+        method = req[0] if len(req) >= 1 else None
+        url = req[1] if len(req) >= 2 else None
+        size_s = m.group("size")
+        size = int(size_s) if size_s and size_s != "-" else None
+        agent = m.group("agent") or ""
+        return LogEntry(
+            ip=m.group("ip"), timestamp=ts,
+            method=method, url=url,
+            status_code=int(m.group("status")),
+            response_size=size,
+            referer=m.group("referer") or None,
+            user_agent=agent if agent not in ("", "-") else None,
+            raw_line=line,
+        )
