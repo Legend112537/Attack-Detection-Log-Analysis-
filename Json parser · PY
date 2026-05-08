@@ -1,0 +1,72 @@
+import json
+from datetime import datetime
+from typing import Optional, List
+from ..utils.alert import LogEntry
+
+IP_KEYS   = ["ip","remote_addr","client_ip","src_ip","clientip","host"]
+TS_KEYS   = ["timestamp","time","@timestamp","ts","date","datetime"]
+MTH_KEYS  = ["method","http_method","request_method","verb"]
+URL_KEYS  = ["url","path","uri","request_uri","endpoint","request"]
+ST_KEYS   = ["status","status_code","http_status","response_code","code"]
+SZ_KEYS   = ["size","bytes","response_size","content_length","body_bytes_sent"]
+UA_KEYS   = ["user_agent","useragent","agent","http_user_agent","ua"]
+
+def _get(d, keys):
+    for k in keys:
+        if k in d:
+            return d[k]
+    return None
+
+
+class JsonParser:
+    def parse_file(self, path: str) -> List[LogEntry]:
+        entries = []
+        try:
+            with open(path, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    e = self.parse_line(line.strip())
+                    if e:
+                        entries.append(e)
+        except Exception as ex:
+            print(f"[ERROR] {ex}")
+        return entries
+
+    def parse_line(self, line: str) -> Optional[LogEntry]:
+        if not line:
+            return None
+        try:
+            d = json.loads(line)
+        except Exception:
+            return None
+        if not isinstance(d, dict):
+            return None
+        ip = str(_get(d, IP_KEYS) or "0.0.0.0")
+        ts = None
+        ts_v = _get(d, TS_KEYS)
+        if ts_v:
+            try:
+                if isinstance(ts_v, (int, float)):
+                    ts = datetime.fromtimestamp(ts_v)
+                else:
+                    ts = datetime.fromisoformat(str(ts_v).replace("Z", "+00:00"))
+            except Exception:
+                pass
+        st = None
+        st_v = _get(d, ST_KEYS)
+        if st_v is not None:
+            try: st = int(st_v)
+            except Exception: pass
+        sz = None
+        sz_v = _get(d, SZ_KEYS)
+        if sz_v is not None:
+            try: sz = int(sz_v)
+            except Exception: pass
+        ua = str(_get(d, UA_KEYS) or "")
+        return LogEntry(
+            ip=ip, timestamp=ts,
+            method=str(_get(d, MTH_KEYS) or "") or None,
+            url=str(_get(d, URL_KEYS) or "") or None,
+            status_code=st, response_size=sz,
+            user_agent=ua or None,
+            raw_line=line, extra=d,
+        )
