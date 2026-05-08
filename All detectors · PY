@@ -1,0 +1,299 @@
+import re
+from collections import defaultdict
+from datetime import timedelta
+from typing import List
+from urllib.parse import unquote
+from ..utils.alert import LogEntry, Alert
+
+# ─── helpers ──────────────────────────────────────────────────────────────────
+
+def _max_window(entries, seconds):
+    timed = sorted([e for e in entries if e.timestamp], key=lambda e: e.timestamp)
+    if not timed:
+        return len(entries)
+    win = timedelta(seconds=seconds)
+    best = 0
+    for i, e in enumerate(timed):
+        cnt = sum(1 for f in timed[i:] if f.timestamp - e.timestamp <= win)
+        if cnt > best:
+            best = cnt
+    return best
+
+# ─── SQL Injection ─────────────────────────────────────────────────────────────
+
+_SQL = [
+    (re.compile(r"union[\s+%20]+select", re.I),                         "Union-based SQLi",          "CRITICAL"),
+    (re.compile(r"(sleep|benchmark|waitfor\s+delay|pg_sleep)\s*\(", re.I), "Time-based Blind SQLi",  "CRITICAL"),
+    (re.compile(r"xp_cmdshell|xp_regread|sp_oacreate", re.I),           "MSSQL procedure abuse",     "CRITICAL"),
+    (re.compile(r"load_file\s*\(|into\s+(outfile|dumpfile)", re.I),     "MySQL file read/write",     "CRITICAL"),
+    (re.compile(r";\s*(select|insert|update|delete|drop|exec)", re.I),  "Stacked query SQLi",        "HIGH"),
+    (re.compile(r"(select|insert|update|delete|drop|truncate|exec)\s*[\(%]", re.I), "SQL keyword",  "HIGH"),
+    (re.compile(r"(--|#|/\*|\*/)(\s|%20|$)", re.I),                     "SQL comment",               "MEDIUM"),
+    (re.compile(r"'\s*(or|and)\s*('|\d|true|false)", re.I),             "Boolean SQLi",              "MEDIUM"),
+]
+
+class SQLInjectionDetector:
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        for e in entries:
+            if not e.url: continue
+            decoded = unquote(unquote(e.url))
+            for pat, tech, sev in _SQL:
+                if pat.search(decoded):
+                    alerts.append(Alert(
+                        attack_type="SQL Injection", ip=e.ip, severity=sev,
+                        description=f"{tech} in request URL",
+                        timestamp=e.timestamp, url=e.url, method=e.method,
+                        status_code=e.status_code, user_agent=e.user_agent, raw_line=e.raw_line,
+                    ))
+                    break
+        return alerts
+
+# ─── XSS ──────────────────────────────────────────────────────────────────────
+
+_XSS = [
+    (re.compile(r"<script[\s>]", re.I),                                  "Script tag",        "CRITICAL"),
+    (re.compile(r"javascript\s*:",  re.I),                               "JS URI",            "HIGH"),
+    (re.compile(r"on(load|click|error|mouseover|focus|submit)\s*=", re.I), "Event handler",  "HIGH"),
+    (re.compile(r"<(iframe|embed|object|svg)[^>]*on\w", re.I),           "SVG/iframe XSS",   "HIGH"),
+    (re.compile(r"document\.(cookie|location|write)", re.I),             "DOM manipulation",  "HIGH"),
+    (re.compile(r"(alert|confirm|prompt)\s*\(", re.I),                   "JS dialog",         "MEDIUM"),
+]
+
+class XSSDetector:
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        for e in entries:
+            if not e.url: continue
+            decoded = unquote(unquote(e.url))
+            for pat, tech, sev in _XSS:
+                if pat.search(decoded):
+                    alerts.append(Alert(
+                        attack_type="Cross-Site Scripting (XSS)", ip=e.ip, severity=sev,
+                        description=f"{tech} detected in URL",
+                        timestamp=e.timestamp, url=e.url, method=e.method,
+                        status_code=e.status_code, user_agent=e.user_agent, raw_line=e.raw_line,
+                    ))
+                    break
+        return alerts
+
+# ─── Path Traversal ────────────────────────────────────────────────────────────
+
+_PATH = [
+    (re.compile(r"\.\./|\.\.\\|%2e%2e", re.I),                          "Directory traversal",       "HIGH"),
+    (re.compile(r"/etc/(passwd|shadow|hosts|sudoers)", re.I),            "Unix sensitive file",       "CRITICAL"),
+    (re.compile(r"(windows|winnt)[/\\]system32", re.I),                  "Windows system dir",        "CRITICAL"),
+    (re.compile(r"(php://|file://|phar://|data://)", re.I),              "PHP stream wrapper LFI",    "HIGH"),
+    (re.compile(r"\.(htaccess|htpasswd|git/config|env|wp-config)", re.I),"Config file disclosure",   "CRITICAL"),
+    (re.compile(r"(backup|bak|old|temp|tmp)\.(zip|sql|tar|gz)$", re.I), "Backup file probe",         "MEDIUM"),
+]
+
+class PathTraversalDetector:
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        for e in entries:
+            if not e.url: continue
+            decoded = unquote(unquote(e.url))
+            for pat, tech, sev in _PATH:
+                if pat.search(decoded):
+                    alerts.append(Alert(
+                        attack_type="Path Traversal / LFI", ip=e.ip, severity=sev,
+                        description=f"{tech} detected",
+                        timestamp=e.timestamp, url=e.url, method=e.method,
+                        status_code=e.status_code, user_agent=e.user_agent, raw_line=e.raw_line,
+                    ))
+                    break
+        return alerts
+
+# ─── Command Injection ─────────────────────────────────────────────────────────
+
+_CMD = [
+    (re.compile(r"[;&|`]\s*(ls|cat|id|whoami|uname|ps|wget|curl|bash|sh)\b", re.I), "Shell command",    "CRITICAL"),
+    (re.compile(r"\$\(.*\)|\$\{.*\}", re.I),                                        "Shell expansion",  "CRITICAL"),
+    (re.compile(r"(eval|system|exec|passthru|shell_exec|popen)\s*\(", re.I),        "PHP RCE function", "CRITICAL"),
+    (re.compile(r"(cmd\.exe|powershell|wscript|mshta)", re.I),                      "Windows cmd exec", "HIGH"),
+    (re.compile(r"(wget|curl)\s+https?://", re.I),                                  "Remote download",  "HIGH"),
+]
+
+class CommandInjectionDetector:
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        for e in entries:
+            if not e.url: continue
+            decoded = unquote(unquote(e.url))
+            for pat, tech, sev in _CMD:
+                if pat.search(decoded):
+                    alerts.append(Alert(
+                        attack_type="Command Injection / RCE", ip=e.ip, severity=sev,
+                        description=f"{tech} in URL",
+                        timestamp=e.timestamp, url=e.url, method=e.method,
+                        status_code=e.status_code, user_agent=e.user_agent, raw_line=e.raw_line,
+                    ))
+                    break
+        return alerts
+
+# ─── Brute Force ───────────────────────────────────────────────────────────────
+
+_AUTH_RE = re.compile(r"login|signin|auth|wp-login|admin|session|token|oauth|password", re.I)
+
+class BruteForceDetector:
+    def __init__(self, threshold=5, window=300):
+        self.threshold = threshold
+        self.window = window
+
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        ip_fails = defaultdict(list)
+        ip_auth  = defaultdict(list)
+        for e in entries:
+            if e.status_code in (401, 403, 429):
+                ip_fails[e.ip].append(e)
+            if e.status_code in (401, 403) and e.url and _AUTH_RE.search(e.url):
+                ip_auth[e.ip].append(e)
+
+        for ip, fails in ip_fails.items():
+            burst = _max_window(fails, self.window)
+            if burst >= self.threshold:
+                alerts.append(Alert(
+                    attack_type="Brute Force", ip=ip,
+                    severity="HIGH" if burst > self.threshold * 3 else "MEDIUM",
+                    description=f"{burst} failed requests in {self.window}s window",
+                    timestamp=fails[-1].timestamp, count=burst,
+                ))
+        for ip, fails in ip_auth.items():
+            thr = max(3, self.threshold // 2)
+            burst = _max_window(fails, self.window)
+            if burst >= thr:
+                alerts.append(Alert(
+                    attack_type="Brute Force (Login)", ip=ip,
+                    severity="CRITICAL" if burst > 20 else "HIGH",
+                    description=f"{burst} failed login attempts",
+                    timestamp=fails[-1].timestamp,
+                    url=fails[-1].url, count=burst,
+                ))
+        return alerts
+
+# ─── DDoS ──────────────────────────────────────────────────────────────────────
+
+class DDoSDetector:
+    def __init__(self, threshold=500, window=60):
+        self.threshold = threshold
+        self.window = window
+
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        ip_reqs = defaultdict(list)
+        for e in entries:
+            ip_reqs[e.ip].append(e)
+        alerts = []
+        for ip, reqs in ip_reqs.items():
+            if len(reqs) < self.threshold:
+                continue
+            peak = _max_window(reqs, self.window)
+            if peak >= self.threshold:
+                rpm = peak * (60 / self.window)
+                sev = "CRITICAL" if rpm > 5000 else "HIGH" if rpm > 1000 else "MEDIUM"
+                alerts.append(Alert(
+                    attack_type="DDoS / Request Flood", ip=ip, severity=sev,
+                    description=f"{peak} requests in {self.window}s (~{rpm:.0f}/min)",
+                    timestamp=reqs[-1].timestamp, count=peak,
+                ))
+        return alerts
+
+# ─── Scanner ───────────────────────────────────────────────────────────────────
+
+_SCAN_PATHS = re.compile(
+    r"/(wp-admin|wp-login|phpmyadmin|pma|\.git|\.env|\.htaccess|"
+    r"config\.php|backup|shell\.php|c99|xmlrpc|actuator|"
+    r"swagger|openapi|\.svn|\.DS_Store|cgi-bin|admin)(/?$|/|\?|\.)",
+    re.I
+)
+_SCAN_UA = re.compile(
+    r"(sqlmap|nikto|nmap|masscan|zgrab|nuclei|dirbuster|gobuster|"
+    r"wfuzz|burp|zaproxy|acunetix|nessus|openvas|havij|hydra|medusa)",
+    re.I
+)
+
+class ScannerDetector:
+    def __init__(self, threshold=5):
+        self.threshold = threshold
+
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        ip_scan = defaultdict(list)
+        ip_404  = defaultdict(list)
+        ua_hits = defaultdict(list)
+
+        for e in entries:
+            url = e.url or ""
+            if _SCAN_PATHS.search(url):
+                ip_scan[e.ip].append(e)
+            if e.status_code == 404:
+                ip_404[e.ip].append(e)
+            if e.user_agent and _SCAN_UA.search(e.user_agent):
+                ua_hits[e.ip].append(e)
+
+        for ip, hits in ip_scan.items():
+            if len(hits) >= self.threshold:
+                alerts.append(Alert(
+                    attack_type="Vulnerability Scan", ip=ip,
+                    severity="HIGH" if len(hits) > self.threshold * 3 else "MEDIUM",
+                    description=f"Probed {len(hits)} sensitive paths",
+                    timestamp=hits[-1].timestamp, count=len(hits),
+                    extra={"paths": [e.url for e in hits[:5]]},
+                ))
+        for ip, hits in ip_404.items():
+            if len(hits) >= self.threshold * 3:
+                alerts.append(Alert(
+                    attack_type="Directory Brute Force", ip=ip,
+                    severity="HIGH" if len(hits) > 100 else "MEDIUM",
+                    description=f"{len(hits)} HTTP 404s — directory enumeration",
+                    timestamp=hits[-1].timestamp, count=len(hits),
+                ))
+        for ip, hits in ua_hits.items():
+            alerts.append(Alert(
+                attack_type="Known Scanner Tool", ip=ip, severity="HIGH",
+                description=f"Scanner UA: {(hits[0].user_agent or '')[:80]}",
+                timestamp=hits[0].timestamp, user_agent=hits[0].user_agent, count=len(hits),
+            ))
+        return alerts
+
+# ─── User Agent ────────────────────────────────────────────────────────────────
+
+_MAL_UA = re.compile(
+    r"(sqlmap|nikto|havij|acunetix|nessus|nmap|masscan|zgrab|"
+    r"dirbuster|gobuster|wfuzz|burp|zaproxy|<script|%3cscript)",
+    re.I
+)
+_SUS_UA = re.compile(r"(scrapy|phantomjs|selenium|webdriver|headless|python-urllib|python-httplib)", re.I)
+
+class UserAgentDetector:
+    def detect(self, entries: List[LogEntry]) -> List[Alert]:
+        alerts = []
+        seen = set()
+        for e in entries:
+            ua = e.user_agent or ""
+            key = (e.ip, ua[:40])
+            if key in seen:
+                continue
+            if not ua.strip():
+                seen.add(key)
+                alerts.append(Alert(
+                    attack_type="Suspicious User Agent", ip=e.ip, severity="LOW",
+                    description="Empty User-Agent — possible bot or scanner",
+                    timestamp=e.timestamp, url=e.url,
+                ))
+            elif _MAL_UA.search(ua):
+                seen.add(key)
+                alerts.append(Alert(
+                    attack_type="Malicious Tool UA", ip=e.ip, severity="HIGH",
+                    description=f"Known attack tool: {ua[:100]}",
+                    timestamp=e.timestamp, url=e.url, user_agent=ua,
+                ))
+            elif _SUS_UA.search(ua):
+                seen.add(key)
+                alerts.append(Alert(
+                    attack_type="Suspicious User Agent", ip=e.ip, severity="MEDIUM",
+                    description=f"Automated agent: {ua[:100]}",
+                    timestamp=e.timestamp, url=e.url, user_agent=ua,
+                ))
+        return alerts
