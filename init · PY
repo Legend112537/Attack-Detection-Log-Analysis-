@@ -32,3 +32,37 @@ class LogParser:
 
 
 __all__ = ["LogParser", "ApacheParser", "NginxParser", "SyslogParser", "JsonParser"]
+
+
+from typing import List, Optional
+from ..utils.alert import LogEntry, Alert
+from .all_detectors import (
+    SQLInjectionDetector, XSSDetector, PathTraversalDetector,
+    CommandInjectionDetector, BruteForceDetector, DDoSDetector,
+    ScannerDetector, UserAgentDetector,
+)
+
+
+class AttackDetector:
+    def __init__(self, rules_file: Optional[str] = None, threshold: int = 5):
+        self.detectors = [
+            SQLInjectionDetector(),
+            XSSDetector(),
+            PathTraversalDetector(),
+            CommandInjectionDetector(),
+            UserAgentDetector(),
+            BruteForceDetector(threshold=threshold),
+            DDoSDetector(threshold=threshold * 80),
+            ScannerDetector(threshold=threshold),
+        ]
+
+    def analyze(self, entries: List[LogEntry]) -> List[Alert]:
+        all_alerts: List[Alert] = []
+        for det in self.detectors:
+            try:
+                all_alerts.extend(det.detect(entries))
+            except Exception as ex:
+                print(f"[WARN] {det.__class__.__name__}: {ex}")
+        order = {"CRITICAL": 4, "HIGH": 3, "MEDIUM": 2, "LOW": 1}
+        all_alerts.sort(key=lambda a: order.get(a.severity, 0), reverse=True)
+        return all_alerts
